@@ -7,7 +7,16 @@
 //32 registradores inicializados com 0
 uint32_t R[32] = { 0 };
 
-//Optei por usar a memória indexada de 4 em 4 bytes
+//Output do terminal
+char* outputTerminal = NULL;
+
+//Define o tamanho máximo base do output
+const int TAMANHO_BASE_OUTPUT = 300;
+
+//Tamanho atual do output
+int tamanhoOutput = 0;
+
+//Memória indexada de 4 em 4 bytes
 uint32_t* MEM = NULL;
 
 //Ponteiros para os arquivos de entrada e saída
@@ -68,7 +77,9 @@ void ativar_flag(Flag);
 void desativar_flag(Flag);
 uint8_t verificar_flag_setada(Flag);
 void preparar_execucao_ISR();
-void decodificar_instrucao(uint8_t instrucao);
+void decodificar_instrucao(uint8_t);
+void imprimir_output_terminal();
+void adicionar_caractere_output(char);
 
 //Funções de debug
 void visualizar_memoria();
@@ -1319,7 +1330,11 @@ void _s8()
     uint8_t x = (R[IR] & (0b11111 << 16)) >> 16;
     int16_t i = R[IR] & 0xFFFF;
 
-    ((uint8_t*)&MEM[(R[x] + i) >> 2])[3 - (R[x] + i) % 4] = (int8_t)R[z];
+    if(R[x] + i == 0x8888888B) {
+        adicionar_caractere_output((char)R[z]);
+    } else {
+        ((uint8_t*)&MEM[(R[x] + i) >> 2])[3 - (R[x] + i) % 4] = (int8_t)R[z];
+    }
 
     //Formatação da saída
     formatar_string_registrador(z, registradorZ);
@@ -1462,12 +1477,10 @@ void _bae()
 {
     int32_t i = R[IR] & 0x3ffffff;
     uint8_t i25 = i >> 25;
-    int32_t i25_i;
+    int32_t i25_i = i;
 
     if(i25 == 1) {
         i25_i = i | 0xfc000000;
-    } else {
-        i25_i = i; 
     }
 
     uint8_t cy = R[SR] & 0b1;
@@ -1483,12 +1496,10 @@ void _bat()
 {
     int32_t i = R[IR] & 0x3ffffff;
     uint8_t i25 = i >> 25;
-    int32_t i25_i;
+    int32_t i25_i = i;
 
     if(i25 == 1) {
         i25_i = i | 0xfc000000;
-    } else {
-        i25_i = i; 
     }
 
     uint8_t cy = R[SR] & 0b1;
@@ -1505,12 +1516,10 @@ void _bbe()
 {
     int32_t i = R[IR] & 0x3ffffff;
     uint8_t i25 = i >> 25;
-    int32_t i25_i;
+    int32_t i25_i = i;
 
     if(i25 == 1) {
         i25_i = i | 0xfc000000;
-    } else {
-        i25_i = i; 
     }
 
     uint8_t cy = R[SR] & 0b1;
@@ -1527,12 +1536,10 @@ void _bbt()
 {
     int32_t i = R[IR] & 0x3ffffff;
     uint8_t i25 = i >> 25;
-    int32_t i25_i;
+    int32_t i25_i = i;
 
     if(i25 == 1) {
         i25_i = i | 0xfc000000;
-    } else {
-        i25_i = i; 
     }
 
     uint8_t cy = R[SR] & 0b1;
@@ -1548,12 +1555,10 @@ void _beq()
 {
     int32_t i = R[IR] & 0x3ffffff;
     uint8_t i25 = i >> 25;
-    int32_t i25_i;
+    int32_t i25_i = i;
 
     if(i25 == 1) {
         i25_i = i | 0xfc000000;
-    } else {
-        i25_i = i; 
     }
 
     uint8_t zn = (R[SR] & (0b1 << 6)) >> 6;
@@ -1569,12 +1574,10 @@ void _bge()
 {
     int32_t i = R[IR] & 0x3ffffff;
     uint8_t i25 = i >> 25;
-    int32_t i25_i;
+    int32_t i25_i = i;
 
     if(i25 == 1) {
         i25_i = i | 0xfc000000;
-    } else {
-        i25_i = i; 
     }
 
     uint8_t sn = (R[SR] & (0b1 << 4)) >> 4;
@@ -1591,12 +1594,10 @@ void _bgt()
 {
     int32_t i = R[IR] & 0x3ffffff;
     uint8_t i25 = i >> 25;
-    int32_t i25_i;
+    int32_t i25_i = i;
 
     if(i25 == 1) {
         i25_i = i | 0xfc000000;
-    } else {
-        i25_i = i; 
     }
 
     uint8_t zn = (R[SR] & (0b1 << 6)) >> 6;
@@ -1614,12 +1615,10 @@ void _biv()
 {
     int32_t i = R[IR] & 0x3ffffff;
     uint8_t i25 = i >> 25;
-    int32_t i25_i;
+    int32_t i25_i = i;
 
     if(i25 == 1) {
         i25_i = i | 0xfc000000;
-    } else {
-        i25_i = i; 
     }
 
     uint8_t iv = (R[SR] & (0b1 << 2)) >> 2;
@@ -1635,12 +1634,10 @@ void _ble()
 {
     int32_t i = R[IR] & 0x3ffffff;
     uint8_t i25 = i >> 25;
-    int32_t i25_i;
+    int32_t i25_i = i;
 
     if(i25 == 1) {
         i25_i = i | 0xfc000000;
-    } else {
-        i25_i = i; 
     }
 
     uint8_t zn = (R[SR] & (0b1 << 6)) >> 6;
@@ -1658,12 +1655,10 @@ void _blt()
 {
     int32_t i = R[IR] & 0x3ffffff;
     uint8_t i25 = i >> 25;
-    int32_t i25_i;
+    int32_t i25_i = i;
 
     if(i25 == 1) {
         i25_i = i | 0xfc000000;
-    } else {
-        i25_i = i; 
     }
 
     uint8_t sn = (R[SR] & (0b1 << 4)) >> 4;
@@ -1680,12 +1675,10 @@ void _bne()
 {
     int32_t i = R[IR] & 0x3ffffff;
     uint8_t i25 = i >> 25;
-    int32_t i25_i;
+    int32_t i25_i = i;
 
     if(i25 == 1) {
         i25_i = i | 0xfc000000;
-    } else {
-        i25_i = i; 
     }
 
     uint8_t zn = (R[SR] & (0b1 << 6)) >> 6;
@@ -1701,12 +1694,10 @@ void _bni()
 {
     int32_t i = R[IR] & 0x3ffffff;
     uint8_t i25 = i >> 25;
-    int32_t i25_i;
+    int32_t i25_i = i;
 
     if(i25 == 1) {
         i25_i = i | 0xfc000000;
-    } else {
-        i25_i = i; 
     }
 
     uint8_t iv = (R[SR] & (0b1 << 2)) >> 2;
@@ -1722,12 +1713,10 @@ void _bnz()
 {
     int32_t i = R[IR] & 0x3ffffff;
     uint8_t i25 = i >> 25;
-    int32_t i25_i;
+    int32_t i25_i = i;
 
     if(i25 == 1) {
         i25_i = i | 0xfc000000;
-    } else {
-        i25_i = i; 
     }
 
     uint8_t zd = (R[SR] & (0b1 << 5)) >> 5;
@@ -1741,10 +1730,18 @@ void _bnz()
 
 void _bun()
 {
-    R[PC] = R[PC] + ((R[IR] & 0x3FFFFFF) << 2);
+    int32_t i = R[IR] & 0x3ffffff;
+    uint8_t i25 = i >> 25;
+    int32_t i25_i = i;
+
+    if(i25 == 1) {
+        i25_i = i | 0xfc000000;
+    }
+
+    R[PC] = R[PC] + (i25_i << 2);
 
     //Formatação da saída
-    sprintf(instrucao, "bun %d", R[IR] & 0x3FFFFFF);
+    sprintf(instrucao, "bun %d", i25_i);
     fprintf(saida, "0x%08X:\t%-25s\tPC=0x%08X\n", pcAtual, instrucao, R[PC] + 4);
 }
 
@@ -1752,12 +1749,10 @@ void _bzd()
 {
     int32_t i = R[IR] & 0x3ffffff;
     uint8_t i25 = i >> 25;
-    int32_t i25_i;
+    int32_t i25_i = i;
 
     if(i25 == 1) {
         i25_i = i | 0xfc000000;
-    } else {
-        i25_i = i; 
     }
 
     uint8_t zd = (R[SR] & (0b1 << 5)) >> 5;
@@ -1773,13 +1768,11 @@ void _calls()
 {
     int32_t i = R[IR] & 0x3ffffff;
     uint8_t i25 = i >> 25;
-    int32_t i25_i;
+    int32_t i25_i = i;
     uint32_t spAtual = R[SP];
 
     if(i25 == 1) {
         i25_i = i | 0xfc000000;
-    } else {
-        i25_i = i; 
     }
 
     MEM[R[SP] >> 2] = R[PC] + 4;
@@ -1891,7 +1884,7 @@ void formatar_string_empilhamento_resultado_pt2(char * string, uint8_t rValidos,
 void inicializar_simulador()
 {
     //32KiB de memória inicializados com 0
-    MEM = (uint32_t*)(calloc(32, 1024));
+    MEM = (uint32_t*)calloc(32, 1024);
 
     //Adicionando as instruções na memória
     uint32_t instrucao, i = 0;
@@ -1899,12 +1892,17 @@ void inicializar_simulador()
         MEM[i++] = instrucao;
     }
 
+    //Alocando memória para o output do terminal
+    outputTerminal = (char*)malloc(TAMANHO_BASE_OUTPUT * sizeof(char));
+
     //Inserindo mensagem de início de execução no arquivo de output
     fprintf(saida, "[START OF SIMULATION]\n");
 }
 
 void finalizar_simulador()
 {
+    if(tamanhoOutput) imprimir_output_terminal();
+
     //Inserindo mensagem de final de execução no arquivo de output
     fprintf(saida, "[END OF SIMULATION]\n");
 
@@ -1917,6 +1915,28 @@ void finalizar_simulador()
 
     //Liberando memória alocada para o array de memória
     free(MEM);
+
+    //Liberando memória alocada para o output do terminal
+    free(outputTerminal);
+}
+
+void imprimir_output_terminal()
+{
+    outputTerminal[tamanhoOutput + 1] = '\0';
+
+    fprintf(saida, "[TERMINAL]\n");
+    fprintf(saida, "%s", outputTerminal);
+    fprintf(saida, "\n");
+}
+
+void adicionar_caractere_output(char caractere)
+{
+    outputTerminal[tamanhoOutput++] = caractere;
+
+    if(tamanhoOutput && tamanhoOutput % TAMANHO_BASE_OUTPUT == 0) {
+        int novoTamanho = tamanhoOutput * sizeof(char) + TAMANHO_BASE_OUTPUT * sizeof(char);
+        outputTerminal = (char*)realloc(outputTerminal, novoTamanho);
+    }
 }
 
 void retornar_instrucao_invalida()
@@ -1959,50 +1979,6 @@ void preparar_execucao_ISR()
 
     MEM[R[SP] >> 2] = R[IPC];
     R[SP] -= 4;
-}
-
-void visualizar_memoria()
-{
-    fprintf(debug, "Exibindo dados da memória...\n\n");
-    for(int i = 0; i < 8192; i++) {
-        fprintf(debug, "0x%08X: 0x%08X", i * 4, MEM[i]);
-
-        if((i + 1) % 5 == 0) fprintf(debug, "\n");
-        else fprintf(debug, "\t\t");
-    }
-
-    fprintf(debug, "\n");
-}
-
-void visualizar_registradores()
-{
-    fprintf(debug, "Exibindo dados dos registradores...\n\n");
-    for(int i = 0; i < 32; i++) {
-        fprintf(debug, "R[%d] = 0x%08x", i, R[i]);
-
-        if((i + 1) % 5 == 0) fprintf(debug, "\n");
-        else fprintf(debug, "\t\t");
-    }
-
-    fprintf(debug, "\n");
-}
-
-char * str_upper(char * string)
-{
-    for(int i = 0; i < strlen(string); i++){
-        string[i] = toupper(string[i]);
-    }
-
-    return string;
-}
-
-int64_t potencia(int base, int expoente)
-{
-    long int resultado = 1;
-    for(int i = 0; i < expoente; i++)
-        resultado *= base;
-
-    return resultado;
 }
 
 void decodificar_instrucao(uint8_t instrucao) {
@@ -2077,4 +2053,48 @@ void decodificar_instrucao(uint8_t instrucao) {
         case 0b111111: _int(); break;
         default: retornar_instrucao_invalida();
     }
+}
+
+void visualizar_memoria()
+{
+    fprintf(debug, "Exibindo dados da memória...\n\n");
+    for(int i = 0; i < 8192; i++) {
+        fprintf(debug, "0x%08X: 0x%08X", i * 4, MEM[i]);
+
+        if((i + 1) % 5 == 0) fprintf(debug, "\n");
+        else fprintf(debug, "\t\t");
+    }
+
+    fprintf(debug, "\n");
+}
+
+void visualizar_registradores()
+{
+    fprintf(debug, "Exibindo dados dos registradores...\n\n");
+    for(int i = 0; i < 32; i++) {
+        fprintf(debug, "R[%d] = 0x%08x", i, R[i]);
+
+        if((i + 1) % 5 == 0) fprintf(debug, "\n");
+        else fprintf(debug, "\t\t");
+    }
+
+    fprintf(debug, "\n");
+}
+
+char * str_upper(char * string)
+{
+    for(int i = 0; i < strlen(string); i++){
+        string[i] = toupper(string[i]);
+    }
+
+    return string;
+}
+
+int64_t potencia(int base, int expoente)
+{
+    long int resultado = 1;
+    for(int i = 0; i < expoente; i++)
+        resultado *= base;
+
+    return resultado;
 }
