@@ -124,6 +124,7 @@ void adicionar_caractere_output(char);
 Interrupcao *obter_interrupcao_duplicada(Interrupcao *);
 void remover_interrupcao_agendada(Interrupcao *);
 void agendar_interrupcao(uint8_t, uint32_t, uint32_t);
+void tratar_interrupcao();
 void destruir_interrupcoes_agendadas();
 void executar_watchdog();
 void decodificar_instrucao_fpu(uint8_t);
@@ -216,9 +217,6 @@ int main(int argc, char *argv[])
     // Executa as instruções enquanto o programa não for interrompido
     while (emExecucao)
     {
-        // Resetando a operação do registrador do FPU
-        fpuControle = fpuControle & (0b1 << 5);
-
         // Carregando a instrução de 32 bits (4 bytes) da memória indexada pelo PC (R29) no registrador IR (R28)
         R[IR] = MEM[R[PC] >> 2];
 
@@ -231,12 +229,18 @@ int main(int argc, char *argv[])
         // Decodificando a instrução buscada na memória
         decodificar_instrucao(codOp);
 
+        // Verificando se o controle de interrupção está ligado e há interrupções pendentes
+        if(verificar_flag_setada(IE) && interrupcoesAgendadas) {
+            preparar_execucao_ISR();
+            tratar_interrupcao();
+        }
+
         // Lógica de implementação do watchdog
         if (watchdog & ((0b1 << 31) >> 31))
             executar_watchdog();
 
         // Lógica de implementação das operações do FPU
-        if (fpuControle & 0b11111)
+        if (fpuControle & 0b11111 && fpuContador == -1)
             decodificar_instrucao_fpu(fpuControle & 0b11111);
 
         // Contador do FPU
@@ -590,7 +594,7 @@ void _div()
     R[0] = 0;
 
     // Campos afetados
-    if (R[z] == 0)
+    if (R[z] == 0 && R[y])
         ativar_flag(ZN);
     else if (R[y])
         desativar_flag(ZN);
@@ -637,8 +641,9 @@ void _div()
             R[z],
             R[SR]);
 
-    if (verificar_flag_setada(ZD) && verificar_flag_setada(IE))
+    if (verificar_flag_setada(ZD) && verificar_flag_setada(IE)) {
         fprintf(saida, "[SOFTWARE INTERRUPTION]\n");
+    }
 }
 
 void _srl()
@@ -701,7 +706,7 @@ void _divs()
     R[0] = 0;
 
     // Campos afetados
-    if (R[z] == 0)
+    if (R[z] == 0 && R[y])
         ativar_flag(ZN);
     else if (R[y])
         desativar_flag(ZN);
@@ -748,8 +753,9 @@ void _divs()
             R[z],
             R[SR]);
 
-    if (verificar_flag_setada(ZD) && verificar_flag_setada(IE))
+    if (verificar_flag_setada(ZD) && verificar_flag_setada(IE)) {
         fprintf(saida, "[SOFTWARE INTERRUPTION]\n");
+    }
 }
 
 void _sra()
@@ -1322,7 +1328,7 @@ void _divi()
     R[0] = 0;
 
     // Campos afetados
-    if (R[z] == 0)
+    if (R[z] == 0 && i != 0)
         ativar_flag(ZN);
     else if (i != 0)
         desativar_flag(ZN);
@@ -1360,8 +1366,9 @@ void _divi()
             R[z],
             R[SR]);
 
-    if (verificar_flag_setada(ZD) && verificar_flag_setada(IE))
+    if (verificar_flag_setada(ZD) && verificar_flag_setada(IE)) {
         fprintf(saida, "[SOFTWARE INTERRUPTION]\n");
+    }
 }
 
 void _modi()
@@ -1390,7 +1397,7 @@ void _modi()
     R[0] = 0;
 
     // Campos afetados
-    if (R[z] == 0)
+    if (R[z] == 0 && i != 0)
         ativar_flag(ZN);
     else if (i != 0)
         desativar_flag(ZN);
@@ -1427,8 +1434,9 @@ void _modi()
             R[z],
             R[SR]);
 
-    if (verificar_flag_setada(ZD) && verificar_flag_setada(IE))
+    if (verificar_flag_setada(ZD) && verificar_flag_setada(IE)) {
         fprintf(saida, "[SOFTWARE INTERRUPTION]\n");
+    }
 }
 
 void _cmpi()
@@ -1545,11 +1553,18 @@ void _l32()
     }
     else if (endereco == 0x80808888)
     {
-        if(fpuZ_IEEE754) {
+        if (fpuZ_IEEE754)
+        {
             memcpy(&R[z], &fpuZ.u, sizeof(uint32_t));
-        } else {
+        }
+        else
+        {
             R[z] = fpuZ.f;
         }
+    }
+    else if (endereco == 0x8080888C)
+    {
+        R[z] = fpuControle;
     }
     else
     {
@@ -1637,6 +1652,10 @@ void _s32()
     {
         fpuZ.f = R[z];
         fpuZ_IEEE754 = 1;
+    }
+    else if (endereco == 0x8080888C)
+    {
+        fpuControle = R[z] & (0b11111);
     }
     else
     {
@@ -2112,8 +2131,9 @@ void _int()
     sprintf(instrucao, "int %u", i);
     fprintf(saida, "0x%08X:\t%-25s\tCR=0x%08X,PC=0x%08X\n", pcAtual, instrucao, i ? R[CR] : 0, i ? R[PC] + 4 : 0);
 
-    if (i)
+    if (i) {
         fprintf(saida, "[SOFTWARE INTERRUPTION]\n");
+    }
 }
 
 uint8_t empilhar(uint8_t i)
@@ -2261,7 +2281,7 @@ void adicionar_caractere_output(char caractere)
 
     if (tamanhoOutput && tamanhoOutput % TAMANHO_BASE_OUTPUT == 0)
     {
-        int novoTamanho = tamanhoOutput * sizeof(char) + TAMANHO_BASE_OUTPUT * sizeof(char);
+        int novoTamanho = (tamanhoOutput + TAMANHO_BASE_OUTPUT) * sizeof(char);
         outputTerminal = (char *)realloc(outputTerminal, novoTamanho);
     }
 }
@@ -2350,10 +2370,17 @@ void agendar_interrupcao(uint8_t prioridade, uint32_t cr, uint32_t ipc)
     novaInterrupcao->prioridade = prioridade;
     novaInterrupcao->cr = cr;
     novaInterrupcao->ipc = ipc;
+    novaInterrupcao->ant = NULL;
+    novaInterrupcao->prox = NULL;
 
     if (obter_interrupcao_duplicada(novaInterrupcao))
     {
         remover_interrupcao_agendada(obter_interrupcao_duplicada(novaInterrupcao));
+    }
+
+    if(atual == NULL) {
+        interrupcoesAgendadas = novaInterrupcao;
+        return;
     }
 
     while (novaInterrupcao->prioridade > atual->prioridade)
@@ -2362,22 +2389,46 @@ void agendar_interrupcao(uint8_t prioridade, uint32_t cr, uint32_t ipc)
         {
             atual->prox = novaInterrupcao;
             novaInterrupcao->ant = atual;
+            return;
         }
 
-        atual = atual->prox;
+            atual = atual->prox;
+
     }
 
+    if (atual->ant)
+        atual->ant->prox = novaInterrupcao;
+
+    atual->ant = novaInterrupcao;
+    novaInterrupcao->ant = atual->ant;
     novaInterrupcao->prox = atual;
+}
 
-    if (atual)
-    {
-        novaInterrupcao->ant = atual->ant;
+void tratar_interrupcao()
+{
+    R[CR] = interrupcoesAgendadas->cr;
+    R[IPC] = interrupcoesAgendadas->ipc;
 
-        if (atual->ant)
-            atual->ant->prox = novaInterrupcao;
-
-        atual->ant = novaInterrupcao;
+    switch(interrupcoesAgendadas->prioridade) {
+        case 1: R[PC] = 0x10; break;
+        case 2: 
+            R[PC] = 0x14; // Seta o campo de status pra 1
+            fpuControle = fpuControle | (0b1 << 5);
+            break;
+        case 3: R[PC] = 0x18; break;
+        case 4: R[PC] = 0x1C; break;
     }
+
+    if(interrupcoesAgendadas->prioridade > 1) {
+        // Resetando a operação do registrador do FPU
+        fpuControle = fpuControle & (0b1 << 5);
+    }
+
+    R[PC] -= 4; // Será incrementado no fim da instrução, comportamento padrão
+
+    fprintf(saida, "[HARDWARE INTERRUPTION %u]\n", interrupcoesAgendadas->prioridade);
+
+    remover_interrupcao_agendada(interrupcoesAgendadas);
 }
 
 void destruir_interrupcoes_agendadas()
@@ -2478,9 +2529,6 @@ void fpu_divisao()
 
     if (fpuY.f == 0)
     {
-        // Seta o campo de status pra 1
-        fpuControle = fpuControle | (0b1 << 5);
-
         fpu_preparar_interrupcao(2, abs(expoenteX - expoenteY) + 1);
 
         return;
@@ -2509,8 +2557,10 @@ void fpu_atribuicao_y()
 
 void fpu_teto()
 {
-    if(fpuZ_IEEE754) fpuZ.f = (float)(int)fpuZ.f == fpuZ.f ? fpuZ.f : (int)fpuZ.f + 1;
-    else fpuZ.u = (float)(int)fpuZ.f == fpuZ.f ? fpuZ.f : (int)fpuZ.f + 1;
+    if (fpuZ_IEEE754)
+        fpuZ.f = (float)(int)fpuZ.f == fpuZ.f ? fpuZ.f : (int)fpuZ.f + 1;
+    else
+        fpuZ.u = (float)(int)fpuZ.f == fpuZ.f ? fpuZ.f : (int)fpuZ.f + 1;
 
     fpuZ_IEEE754 = 0;
 
@@ -2519,8 +2569,10 @@ void fpu_teto()
 
 void fpu_piso()
 {
-    if(fpuZ_IEEE754) fpuZ.f = (int)fpuZ.f;
-    else fpuZ.u = (int)fpuZ.f;
+    if (fpuZ_IEEE754)
+        fpuZ.f = (int)fpuZ.f;
+    else
+        fpuZ.u = (int)fpuZ.f;
 
     fpuZ_IEEE754 = 0;
 
@@ -2561,7 +2613,6 @@ void fpu_interrupcao()
 {
     if (verificar_flag_setada(IE))
     {
-
         preparar_execucao_ISR();
         fprintf(saida, "[HARDWARE INTERRUPTION %u]\n", fpuPrioridade);
         R[CR] = 0x01EEE754;
@@ -2571,6 +2622,8 @@ void fpu_interrupcao()
         {
         case 2:
             R[PC] = 0x14;
+            // Seta o campo de status pra 1
+            fpuControle = fpuControle | (0b1 << 5);
             break;
         case 3:
             R[PC] = 0x18;
@@ -2581,6 +2634,9 @@ void fpu_interrupcao()
         }
 
         R[PC] -= 4; // Será incrementado no fim da instrução, comportamento padrão
+
+        // Resetando a operação do registrador do FPU
+        fpuControle = fpuControle & (0b1 << 5);
     }
     else
     {
@@ -2634,9 +2690,6 @@ void decodificar_instrucao_fpu(uint8_t operacao)
         fpu_arredondamento();
         break;
     default:
-        // Seta o campo de status pra 1
-        fpuControle = fpuControle | (0b1 << 5);
-
         fpu_preparar_interrupcao(2, 1);
     }
 }
